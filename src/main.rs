@@ -35,7 +35,7 @@ fn setup_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    const CAMERA_OFFSET: Vec3 = vec3(0., 7., 15.);
+    const CAMERA_OFFSET: Vec3 = vec3(0., 15., 15.);
     const GROUND_SIZE: Vec3 = vec3(10., 3., 100.);
     commands.spawn((
         Camera3dBundle {
@@ -84,12 +84,12 @@ fn setup_scene(
                 })),
                 transform: {
                     let mut transform = Transform::from_translation(Vec3::new(
-                        random::<f32>().mul_add(5., -2.5),
-                        (index as f32).mul_add(-30., -10. - GROUND_SIZE.y / 2.),
-                        (index as f32) * -120.,
+                        random::<f32>().mul_add(10., -5.),
+                        (index as f32).mul_add(-62., -10. - GROUND_SIZE.y / 2.),
+                        (index as f32) * -100.,
                     ));
                     println!("transform: {:?}", transform.translation);
-                    transform.rotate_axis(Vec3::X, -5_f32.to_radians());
+                    transform.rotate_axis(Vec3::X, -30_f32.to_radians());
                     transform
                 },
                 material: ground_material.clone(),
