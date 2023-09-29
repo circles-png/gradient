@@ -17,6 +17,7 @@ use bevy_rapier3d::{
     prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity},
     render::RapierDebugRenderPlugin,
 };
+use rand::random;
 
 #[derive(Component)]
 struct Ball;
@@ -35,7 +36,7 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     const CAMERA_OFFSET: Vec3 = vec3(0., 7., 15.);
-    const GROUND_SIZE: Vec3 = vec3(10., 1000., 1000.);
+    const GROUND_SIZE: Vec3 = vec3(10., 3., 100.);
     commands.spawn((
         Camera3dBundle {
             camera: Camera {
@@ -69,28 +70,35 @@ fn setup_scene(
         Velocity::zero(),
         Collider::ball(1.),
     ));
-    commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Mesh::from(Box {
-                max_x: GROUND_SIZE.x / 2.,
-                max_y: GROUND_SIZE.y / 2.,
-                max_z: GROUND_SIZE.z / 2.,
-                min_x: -GROUND_SIZE.x / 2.,
-                min_y: -GROUND_SIZE.y / 2.,
-                min_z: -GROUND_SIZE.z / 2.,
-            })),
-            transform: {
-                let mut transform =
-                    Transform::from_translation(Vec3::new(0., -10. - GROUND_SIZE.y / 2., 0.));
-                transform.rotate_axis(Vec3::X, -5_f32.to_radians());
-                transform
+    let ground_material = materials.add(Color::BLACK.into());
+    for index in 0..5 {
+        commands.spawn((
+            PbrBundle {
+                mesh: meshes.add(Mesh::from(Box {
+                    max_x: GROUND_SIZE.x / 2.,
+                    max_y: GROUND_SIZE.y / 2.,
+                    max_z: GROUND_SIZE.z / 2.,
+                    min_x: -GROUND_SIZE.x / 2.,
+                    min_y: -GROUND_SIZE.y / 2.,
+                    min_z: -GROUND_SIZE.z / 2.,
+                })),
+                transform: {
+                    let mut transform = Transform::from_translation(Vec3::new(
+                        random::<f32>().mul_add(5., -2.5),
+                        (index as f32).mul_add(-30., -10. - GROUND_SIZE.y / 2.),
+                        (index as f32) * -120.,
+                    ));
+                    println!("transform: {:?}", transform.translation);
+                    transform.rotate_axis(Vec3::X, -5_f32.to_radians());
+                    transform
+                },
+                material: ground_material.clone(),
+                ..Default::default()
             },
-            material: materials.add(Color::BLACK.into()),
-            ..Default::default()
-        },
-        Ground,
-        Collider::cuboid(GROUND_SIZE.x / 2., GROUND_SIZE.y / 2., GROUND_SIZE.z / 2.),
-    ));
+            Ground,
+            Collider::cuboid(GROUND_SIZE.x / 2., GROUND_SIZE.y / 2., GROUND_SIZE.z / 2.),
+        ));
+    }
 }
 
 fn handle_input(mut query: Query<&mut Velocity>, keyboard: Res<Input<KeyCode>>) {
