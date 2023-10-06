@@ -6,15 +6,20 @@ use bevy::{
     math::vec3,
     prelude::{
         shape::{Box, UVSphere},
-        App, Assets, Camera, Camera3dBundle, ClearColor, Color, Commands, Component, FixedUpdate,
-        Input, KeyCode, Mesh, PbrBundle, PluginGroup, Query, Res, ResMut, StandardMaterial,
-        Startup, Transform, Vec3, With, Without,
+        App, AssetServer, Assets, Camera, Camera3dBundle, ClearColor, Color, Commands, Component,
+        EventReader, FixedUpdate, Input, KeyCode, Mesh, PbrBundle, PluginGroup, Query, Res, ResMut,
+        StandardMaterial, Startup, TextBundle, Transform, Vec3, With, Without,
     },
+    text::{Text, TextAlignment, TextStyle},
+    ui::{Style, UiRect, Val},
     window::{MonitorSelection, Window, WindowPlugin, WindowPosition},
     DefaultPlugins,
 };
 use bevy_rapier3d::{
-    prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity},
+    prelude::{
+        ActiveEvents, Collider, CollisionEvent, NoUserData, RapierPhysicsPlugin, RigidBody,
+        Velocity,
+    },
     render::RapierDebugRenderPlugin,
 };
 use rand::random;
@@ -23,20 +28,31 @@ use rand::random;
 struct Ball;
 
 #[derive(Component)]
-struct Ground;
+struct Platform;
 
 #[derive(Component)]
 struct MainCamera {
     offset_from_target: Vec3,
 }
 
+#[derive(Component)]
+struct Score(u32);
+
+#[derive(Component)]
+struct Scored(bool);
+
+#[derive(Component)]
+struct ScoreText;
+
+const PLATFORM_SIZE: Vec3 = vec3(10., 3., 100.);
+
 fn setup_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     const CAMERA_OFFSET: Vec3 = vec3(0., 15., 15.);
-    const GROUND_SIZE: Vec3 = vec3(10., 3., 100.);
     commands.spawn((
         Camera3dBundle {
             camera: Camera {
@@ -69,36 +85,51 @@ fn setup_scene(
         RigidBody::Dynamic,
         Velocity::zero(),
         Collider::ball(1.),
+        Score(0),
+        ActiveEvents::COLLISION_EVENTS,
     ));
-    let ground_material = materials.add(Color::BLACK.into());
-    for index in 0..5 {
-        commands.spawn((
-            PbrBundle {
-                mesh: meshes.add(Mesh::from(Box {
-                    max_x: GROUND_SIZE.x / 2.,
-                    max_y: GROUND_SIZE.y / 2.,
-                    max_z: GROUND_SIZE.z / 2.,
-                    min_x: -GROUND_SIZE.x / 2.,
-                    min_y: -GROUND_SIZE.y / 2.,
-                    min_z: -GROUND_SIZE.z / 2.,
-                })),
-                transform: {
-                    let mut transform = Transform::from_translation(Vec3::new(
-                        random::<f32>().mul_add(10., -5.),
-                        (index as f32).mul_add(-62., -10. - GROUND_SIZE.y / 2.),
-                        (index as f32) * -100.,
-                    ));
-                    println!("transform: {:?}", transform.translation);
-                    transform.rotate_axis(Vec3::X, -30_f32.to_radians());
-                    transform
-                },
-                material: ground_material.clone(),
-                ..Default::default()
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(Box {
+                max_x: PLATFORM_SIZE.x / 2.,
+                max_y: PLATFORM_SIZE.y / 2.,
+                max_z: PLATFORM_SIZE.z / 2.,
+                min_x: -PLATFORM_SIZE.x / 2.,
+                min_y: -PLATFORM_SIZE.y / 2.,
+                min_z: -PLATFORM_SIZE.z / 2.,
+            })),
+            transform: {
+                let mut transform = Transform::from_translation(Vec3::new(
+                    random::<f32>().mul_add(10., -5.),
+                    -10. - PLATFORM_SIZE.y / 2.,
+                    0.,
+                ));
+                transform.rotate_axis(Vec3::X, -30_f32.to_radians());
+                transform
             },
-            Ground,
-            Collider::cuboid(GROUND_SIZE.x / 2., GROUND_SIZE.y / 2., GROUND_SIZE.z / 2.),
-        ));
-    }
+            material: materials.add(Color::BLACK.into()),
+            ..Default::default()
+        },
+        Platform,
+        Collider::cuboid(PLATFORM_SIZE.x / 2., PLATFORM_SIZE.y / 2., PLATFORM_SIZE.z / 2.),
+        Scored(false),
+    ));
+    commands.spawn((
+        TextBundle::from_section(
+            "0",
+            TextStyle {
+                font: asset_server.load("Fira Code Retina.ttf"),
+                font_size: 100.,
+                color: Color::GREEN,
+            },
+        )
+        .with_text_alignment(TextAlignment::Center)
+        .with_style(Style {
+            margin: UiRect::horizontal(Val::Auto),
+            ..Default::default()
+        }),
+        ScoreText,
+    ));
 }
 
 fn handle_input(mut query: Query<&mut Velocity>, keyboard: Res<Input<KeyCode>>) {
@@ -107,6 +138,59 @@ fn handle_input(mut query: Query<&mut Velocity>, keyboard: Res<Input<KeyCode>>) 
     query.for_each_mut(|mut velocity| {
         velocity.linvel.x += horizontal * 0.5;
     });
+}
+
+fn increase_score_and_spawn_platforms(
+    mut collision_events: EventReader<CollisionEvent>,
+    mut ball_query: Query<(&mut Score, &Transform)>,
+    mut platform_query: Query<&mut Scored>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for event in &mut collision_events {
+        if let CollisionEvent::Started(ball, platform, _) = event {
+            let mut scored = platform_query.get_mut(*platform).unwrap();
+            if !scored.0 {
+                let (mut score, transform) = ball_query.get_mut(*ball).unwrap();
+                score.0 += 1;
+                commands.spawn((
+                    PbrBundle {
+                        mesh: meshes.add(Mesh::from(Box {
+                            max_x: PLATFORM_SIZE.x / 2.,
+                            max_y: PLATFORM_SIZE.y / 2.,
+                            max_z: PLATFORM_SIZE.z / 2.,
+                            min_x: -PLATFORM_SIZE.x / 2.,
+                            min_y: -PLATFORM_SIZE.y / 2.,
+                            min_z: -PLATFORM_SIZE.z / 2.,
+                        })),
+                        transform: {
+                            let mut transform = Transform::from_translation(
+                                Vec3::new(
+                                    random::<f32>().mul_add(10., -5.) + transform.translation.x,
+                                    transform.translation.y - 73.,
+                                    transform.translation.z - 107.,
+                                ),
+                            );
+                            transform.rotate_axis(Vec3::X, -30_f32.to_radians());
+                            transform
+                        },
+                        material: materials.add(Color::BLACK.into()).clone(),
+                        ..Default::default()
+                    },
+                    Platform,
+                    Collider::cuboid(PLATFORM_SIZE.x / 2., PLATFORM_SIZE.y / 2., PLATFORM_SIZE.z / 2.),
+                    Scored(false),
+                ));
+            }
+            scored.0 = true;
+        }
+    }
+}
+
+fn update_score(score_query: Query<&Score>, mut text_query: Query<&mut Text, With<ScoreText>>) {
+    let score = score_query.single().0;
+    text_query.single_mut().sections[0].value = score.to_string();
 }
 
 type CameraData<'a> = (&'a mut Transform, &'a MainCamera);
@@ -130,6 +214,16 @@ fn move_camera_to_ball(
     });
 }
 
+fn limit_ball_speed(score_query: Query<&Score>, mut ball_query: Query<&mut Velocity, With<Ball>>) {
+    let score = score_query.single().0;
+    let max_speed = (score as f32).mul_add(2., 20.);
+    ball_query.for_each_mut(|mut velocity| {
+        if velocity.linvel.length() > max_speed {
+            velocity.linvel = velocity.linvel.normalize() * max_speed;
+        }
+    });
+}
+
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
@@ -146,6 +240,15 @@ fn main() {
             RapierDebugRenderPlugin::default(),
         ))
         .add_systems(Startup, setup_scene)
-        .add_systems(FixedUpdate, (handle_input, move_camera_to_ball))
+        .add_systems(
+            FixedUpdate,
+            (
+                handle_input,
+                move_camera_to_ball,
+                increase_score_and_spawn_platforms,
+                update_score,
+                limit_ball_speed,
+            ),
+        )
         .run();
 }
