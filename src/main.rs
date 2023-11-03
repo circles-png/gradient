@@ -7,19 +7,16 @@ use bevy::{
     prelude::{
         shape::{Box, UVSphere},
         App, AssetServer, Assets, Camera, Camera3dBundle, ClearColor, Color, Commands, Component,
-        EventReader, FixedUpdate, Input, KeyCode, Mesh, PbrBundle, PluginGroup, Query, Res, ResMut,
+        Entity, FixedUpdate, Input, KeyCode, Mesh, PbrBundle, PluginGroup, Query, Res, ResMut,
         StandardMaterial, Startup, TextBundle, Transform, Vec3, With, Without,
     },
     text::{Text, TextAlignment, TextStyle},
     ui::{Style, UiRect, Val},
-    window::{MonitorSelection, Window, WindowPlugin, WindowPosition},
+    window::{Window, WindowPlugin},
     DefaultPlugins,
 };
 use bevy_rapier3d::{
-    prelude::{
-        ActiveEvents, Collider, CollisionEvent, NoUserData, RapierPhysicsPlugin, RigidBody,
-        Velocity,
-    },
+    prelude::{ActiveEvents, Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity},
     render::RapierDebugRenderPlugin,
 };
 use rand::random;
@@ -38,7 +35,7 @@ struct MainCamera {
 #[derive(Component)]
 struct Score(u32);
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 struct Scored(bool);
 
 #[derive(Component)]
@@ -52,7 +49,7 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    const CAMERA_OFFSET: Vec3 = vec3(0., 15., 15.);
+    const CAMERA_OFFSET: Vec3 = vec3(0., 20., 15.);
     commands.spawn((
         Camera3dBundle {
             camera: Camera {
@@ -104,14 +101,18 @@ fn setup_scene(
                     -10. - PLATFORM_SIZE.y / 2.,
                     0.,
                 ));
-                transform.rotate_axis(Vec3::X, -30_f32.to_radians());
+                transform.rotate_axis(Vec3::X, -45_f32.to_radians());
                 transform
             },
             material: materials.add(Color::BLACK.into()),
             ..Default::default()
         },
         Platform,
-        Collider::cuboid(PLATFORM_SIZE.x / 2., PLATFORM_SIZE.y / 2., PLATFORM_SIZE.z / 2.),
+        Collider::cuboid(
+            PLATFORM_SIZE.x / 2.,
+            PLATFORM_SIZE.y / 2.,
+            PLATFORM_SIZE.z / 2.,
+        ),
         Scored(false),
     ));
     commands.spawn((
@@ -141,50 +142,60 @@ fn handle_input(mut query: Query<&mut Velocity>, keyboard: Res<Input<KeyCode>>) 
 }
 
 fn increase_score_and_spawn_platforms(
-    mut collision_events: EventReader<CollisionEvent>,
     mut ball_query: Query<(&mut Score, &Transform)>,
-    mut platform_query: Query<&mut Scored>,
+    mut platform_query: Query<(&mut Scored, &Transform)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for event in &mut collision_events {
-        if let CollisionEvent::Started(ball, platform, _) = event {
-            let mut scored = platform_query.get_mut(*platform).unwrap();
-            if !scored.0 {
-                let (mut score, transform) = ball_query.get_mut(*ball).unwrap();
-                score.0 += 1;
-                commands.spawn((
-                    PbrBundle {
-                        mesh: meshes.add(Mesh::from(Box {
-                            max_x: PLATFORM_SIZE.x / 2.,
-                            max_y: PLATFORM_SIZE.y / 2.,
-                            max_z: PLATFORM_SIZE.z / 2.,
-                            min_x: -PLATFORM_SIZE.x / 2.,
-                            min_y: -PLATFORM_SIZE.y / 2.,
-                            min_z: -PLATFORM_SIZE.z / 2.,
-                        })),
-                        transform: {
-                            let mut transform = Transform::from_translation(
-                                Vec3::new(
-                                    random::<f32>().mul_add(10., -5.) + transform.translation.x,
-                                    transform.translation.y - 73.,
-                                    transform.translation.z - 107.,
-                                ),
-                            );
-                            transform.rotate_axis(Vec3::X, -30_f32.to_radians());
-                            transform
-                        },
-                        material: materials.add(Color::BLACK.into()).clone(),
-                        ..Default::default()
+    let mut last_platform = platform_query.iter_mut().collect::<Vec<_>>();
+    last_platform.sort_unstable_by(|(_, first), (_, second)| {
+        first
+            .translation
+            .z
+            .total_cmp(&second.translation.z)
+            .reverse()
+    });
+    let last_platform = last_platform.last_mut().unwrap();
+    if ball_query.single().1.translation.z < last_platform.1.translation.z {
+        let (ref mut scored, _transform) = last_platform;
+        if !scored.0 {
+            let (mut score, ball_transform) = ball_query.single_mut();
+            score.0 += 1;
+            commands.spawn((
+                PbrBundle {
+                    mesh: meshes.add(Mesh::from(Box {
+                        max_x: PLATFORM_SIZE.x / 2.,
+                        max_y: PLATFORM_SIZE.y / 2.,
+                        max_z: PLATFORM_SIZE.z / 2.,
+                        min_x: -PLATFORM_SIZE.x / 2.,
+                        min_y: -PLATFORM_SIZE.y / 2.,
+                        min_z: -PLATFORM_SIZE.z / 2.,
+                    })),
+                    transform: {
+                        let mut transform = Transform::from_translation(Vec3::new(
+                            random::<f32>().mul_add(20., -10.) + ball_transform.translation.x,
+                            ball_transform.translation.y - 90.,
+                            ball_transform.translation.z - 80.,
+                        ));
+                        transform.rotate_axis(Vec3::X, -45_f32.to_radians());
+                        transform
+                            .rotate_axis(Vec3::Z, random::<f32>().mul_add(20., -10.).to_radians());
+                        transform
                     },
-                    Platform,
-                    Collider::cuboid(PLATFORM_SIZE.x / 2., PLATFORM_SIZE.y / 2., PLATFORM_SIZE.z / 2.),
-                    Scored(false),
-                ));
-            }
-            scored.0 = true;
+                    material: materials.add(Color::BLACK.into()),
+                    ..Default::default()
+                },
+                Platform,
+                Collider::cuboid(
+                    PLATFORM_SIZE.x / 2.,
+                    PLATFORM_SIZE.y / 2.,
+                    PLATFORM_SIZE.z / 2.,
+                ),
+                Scored(false),
+            ));
         }
+        scored.0 = true;
     }
 }
 
@@ -223,6 +234,29 @@ fn limit_ball_speed(score_query: Query<&Score>, mut ball_query: Query<&mut Veloc
         }
     });
 }
+fn detect_loss(
+    mut ball_query: Query<(&mut Transform, &mut Velocity, &mut Score), With<Ball>>,
+    mut platform_query: Query<(&mut Scored, &Transform, Entity), Without<Ball>>,
+    mut commands: Commands,
+) {
+    let minimum = platform_query
+        .iter()
+        .map(|platform| platform.1.translation.y)
+        .reduce(f32::min)
+        .unwrap();
+    let (mut transform, mut velocity, mut score) = ball_query.single_mut();
+    if transform.translation.y < minimum - 1000. {
+        *transform = Transform::default();
+        *velocity = Velocity::zero();
+        score.0 = 0;
+        for platform in platform_query.iter().skip(1) {
+            commands.get_entity(platform.2).unwrap().despawn();
+        }
+        for mut platform in &mut platform_query {
+            *platform.0 = Scored(false);
+        }
+    }
+}
 
 fn main() {
     App::new()
@@ -231,7 +265,6 @@ fn main() {
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "gradient".to_string(),
-                    position: WindowPosition::Centered(MonitorSelection::Index(1)),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -248,6 +281,7 @@ fn main() {
                 increase_score_and_spawn_platforms,
                 update_score,
                 limit_ball_speed,
+                detect_loss,
             ),
         )
         .run();
