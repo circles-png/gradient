@@ -1,0 +1,50 @@
+name: Build
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup Cargo
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true,
+        target: wasm32-unknown-unknown
+    - name: Install binaries
+      run: |
+        cargo install wasm-bindgen-cli
+        cargo install wasm-opt
+    - name: Add target
+      run: rustup target add wasm32-unknown-unknown
+    - name: Build
+      run: ./build.sh
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v2
+      with:
+        path: 'dist'
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v2
